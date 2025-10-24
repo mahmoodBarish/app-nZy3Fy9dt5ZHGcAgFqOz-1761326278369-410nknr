@@ -1,0 +1,53 @@
+name: Deploy Flutter Web to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build web --release --base-href /${{ github.event.repository.name }}/
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./build/web
+
+      # --- خطوة إبلاغ n8n عند الفشل ---
+      - name: Notify n8n of Failure
+        if: failure() # شرط: لا تعمل إلا إذا فشلت الخطوات السابقة
+        env: # تعريف رابط الويب هوك كمتغير بيئة
+          N8N_WEBHOOK_URL: "https://shehan312.app.n8n.cloud/webhook/7cef1145-0933-4584-b1c9-0f61771626e2"
+        run: |
+          echo "Build failed. Notifying n8n..."
+          # استخدام متغير البيئة لإرسال الطلب
+          curl -X POST "$N8N_WEBHOOK_URL" \
+          -H "Content-Type: application/json" \
+          -d '{
+                "repository_full_name": "${{ github.repository }}",
+                "run_id": "${{ github.run_id }}",
+                "head_sha": "${{ github.sha }}"
+              }'
+
+  deploy:
+    needs: build # تعتمد على نجاح الوظيفة السابقة
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
